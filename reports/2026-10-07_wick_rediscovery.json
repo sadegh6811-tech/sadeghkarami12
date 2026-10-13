@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-07",
+  "author": "Sadegh Karami Chafteh",
+  "method": "OMP-BIC + Rational Library (122 features)",
+  "data": {
+    "source": "/storage/emulated/0/forex_bot/golden_points/",
+    "pairs": 28,
+    "years": 20
+  },
+  "results": {
+    "with_wick":    {"corr_mean": 0.469, "acc_mean": 0.711},
+    "without_wick": {"corr_mean": 0.302, "acc_mean": 0.652},
+    "wins_corr": "26/28",
+    "wins_acc":  "25/28",
+    "single_feature_selected": "21/28"
+  },
+  "key_finding": "Wick is unique optimum in 122-feature space"
+}

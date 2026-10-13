@@ -64,9 +64,12 @@ def _build_library(Xn, degree, freqs):
 
 
 def discover_equations(X, n_equations, degree=3, tol_ratio=0.08, use_trig=True):
+    # Normalization: column-mean centering + scalar RMS std.
+    # Preserves isotropy (spheres stay spheres).
     mu = X.mean(axis=0)
-    sigma = X.std(axis=0)
-    sigma[sigma < 1e-12] = 1.0
+    sigma = np.sqrt((X.var(axis=0)).mean())
+    if sigma < 1e-12:
+        sigma = 1.0
     Xn = (X - mu) / sigma
 
     freqs = {}
