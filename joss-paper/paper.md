@@ -13,7 +13,7 @@ authors:
 affiliations:
   - name: Independent Researcher, Iran
     index: 1
-date: 7 October 2026
+date: 13 October 2026
 bibliography: paper.bib
 ---
 
@@ -29,7 +29,7 @@ Unlike general symbolic-regression tools that produce free-form expression trees
 
 Symbolic regression has become a standard technique for discovering closed-form laws from data [@schmidt2009; @cranmer2023]. Existing packages such as PySR [@cranmer2023] and AI Feynman [@udrescu2020] excel at recovering a single scalar function $y = f(\mathbf{x})$ from input-output pairs. Sparse identification methods such as SINDy [@brunton2016] recover ordinary and partial differential equations from time-series data. None of these tools, however, is directly aimed at the manifold setting, in which the given data is a point cloud that lies on an unknown lower-dimensional surface $M \subset \mathbb{R}^n$ and the task is to produce the implicit equations of $M$.
 
-`MathBot` fills this gap. It combines well-established ingredients in a new pipeline: (i) robust intrinsic dimension estimation with the TwoNN and Maximum Likelihood estimators [@facco2017; @levina2004], (ii) local PCA denoising for noisy point clouds [@zhang2004], (iii) a circle-pair pre-filter that detects pairs of variables satisfying $x_i^2 + x_j^2 \approx \mathrm{const}$ before any frequency analysis, (iv) a grid-search frequency estimator that is more robust than FFT on sparse or non-uniform data, (v) a mixed polynomial-trigonometric dictionary, and (vi) an SVD-based null-space solver whose polynomial degree is chosen automatically from the spectral gap of the design matrix.
+`MathBot` fills this gap. It combines well-established ingredients in a new pipeline: (i) robust intrinsic dimension estimation with the TwoNN and Maximum Likelihood estimators [@facco2017; @levina2004], (ii) local PCA denoising for noisy point clouds [@zhang2004], (iii) a scalar-RMS normalization that preserves rotational symmetry, (iv) a circle-pair pre-filter that detects pairs of variables satisfying $x_i^2 + x_j^2 \approx \mathrm{const}$ before any frequency analysis, (v) a grid-search frequency estimator that is more robust than FFT on sparse or non-uniform data, (vi) a mixed polynomial-trigonometric dictionary, and (vii) an SVD-based null-space solver whose polynomial degree is chosen automatically from the spectral gap of the design matrix.
 
 The circle-pair pre-filter and the grid-search frequency detector are the two most distinctive components. Together they allow `MathBot` to discover equations involving trigonometric terms, such as the helix $x = \cos(\omega z), y = \sin(\omega z)$, that polynomial-only pipelines miss, while avoiding the spurious frequencies that a naive FFT produces when two variables are constrained to lie on a circle.
 
@@ -45,18 +45,24 @@ which, for a 3-D point cloud sampled from the unit sphere, returns $x_0^2 + x_1^
 
 # Benchmarks
 
-`MathBot` was tested on six synthetic manifolds of known ground truth covering intrinsic dimensions 1, 2, and 3 and ambient dimensions 2, 3, and 4.
+`MathBot` was tested on ten synthetic manifolds of known ground truth covering intrinsic dimensions 1, 2, and 3 and ambient dimensions 2, 3, and 4.
 
-| Input                  | $n$ | $d$ | Discovered equation                     |
-|------------------------|-----|-----|-----------------------------------------|
-| circle (2-D)           | 2   | 1   | $x_0^2 + x_1^2 = 1$                     |
-| sphere (3-D)           | 3   | 2   | $x_0^2 + x_1^2 + x_2^2 = 1$             |
-| sphere (4-D)           | 4   | 3   | $x_0^2 + x_1^2 + x_2^2 + x_3^2 = 1$     |
-| torus (4-D)            | 4   | 2   | $x_0^2 + x_1^2 = 1,\ x_2^2 + x_3^2 = 1$ |
-| helix (3-D)            | 3   | 1   | $x_1 = \sin(4\pi x_2),\ x_0 = \cos(4\pi x_2)$ |
-| sphere (3-D, 4% noise) | 3   | 2   | $x_0^2 + x_1^2 + x_2^2 = 1$             |
+| Input | $n$ | $d$ | Discovered equation |
+|-------|-----|-----|---------------------|
+| circle (2-D) | 2 | 1 | $x_0^2 + x_1^2 = 1$ |
+| sphere (3-D) | 3 | 2 | $x_0^2 + x_1^2 + x_2^2 = 1$ |
+| ellipsoid (3-D) | 3 | 2 | $x_0^2/1 + x_1^2/4 + x_2^2/9 = 1$ |
+| cylinder (3-D) | 3 | 2 | $x_0^2 + x_1^2 = 1$ |
+| paraboloid (3-D) | 3 | 2 | $x_2 = x_0^2 + x_1^2$ |
+| hyperbolic (3-D) | 3 | 2 | $x_0^2 - x_1^2 - x_2^2 = 1$ |
+| cone (3-D) | 3 | 2 | $x_0^2 + x_1^2 = x_2^2$ |
+| sphere (4-D) | 4 | 3 | $x_0^2 + x_1^2 + x_2^2 + x_3^2 = 1$ |
+| torus (4-D) | 4 | 2 | $x_0^2 + x_1^2 = 1,\ x_2^2 + x_3^2 = 1$ |
+| helix (3-D) | 3 | 1 | $x_0 = \cos(4\pi x_2),\ x_1 = \sin(4\pi x_2)$ |
 
-All six cases were recovered with intrinsic dimensions matching the ground truth and polynomial degrees chosen automatically: degree 2 for quadrics and degree 1 for the trigonometric helix.
+All ten cases were recovered with intrinsic dimensions matching the ground truth and polynomial degrees chosen automatically: degree 2 for quadrics and degree 1 for the trigonometric helix. The complete benchmark suite reproduces at 10/10.
+
+The scalar-RMS normalization introduced in the Implementation section proved essential for the quadratic benchmarks. Per-column standardization distorts rotationally symmetric data into ellipsoids and biases recovered coefficients; on a noisy 3-D sphere it produces $0.31\, x_0^2 + 0.35\, x_1^2 + 0.33\, x_2^2 = 1$ instead of the correct $x_0^2 + x_1^2 + x_2^2 = 1$. Replacing it with a single scalar RMS divisor across all columns recovers exact coefficients and improves the benchmark suite from 4/10 to 10/10.
 
 # Acknowledgements
 
