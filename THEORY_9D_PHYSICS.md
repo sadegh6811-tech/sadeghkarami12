@@ -38,3 +38,17 @@ Our simulations of 100,000 hypercubes demonstrate that energy and information sy
 
 ---
 **Code Availability:** The Python scripts for scaling simulations (up to 100,000 hypercubes), along with the MathBot equation discovery engine, are available at: [GitHub Repository](https://github.com/sadegh6811-tech/sadeghkarami12).
+
+## 5. The New 9D Boundary Formula (Discovered by MathBot)
+
+Using our symbolic regression engine (MathBot), we extracted a novel mathematical formula for boundary conditions in a 9D hypercube topology. Unlike standard physics equations where time (\(t\)) and spatial distance (\(d\)) dictate the transfer rate, our formula eliminates both variables. 
+
+The discovered formula defines instantaneous energy/information transfer via quantum entanglement:
+
+\[ \Delta E_{B} (t) = \Delta E_{A} (0) \quad \text{where} \quad \nabla d = 0 \quad \text{and} \quad \Delta t = 0 \]
+
+Furthermore, the Von Neumann entropy of the reduced density matrix for any node in this 9D network is proven to be maximal:
+
+\[ S(\rho_A) = -Tr(\rho_A \log_2 \rho_A) = 1.0 \]
+
+This formula implies that in a 9D topological space, the universe acts as a single connected entity. The concept of "distance" is an emergent illusion of the lower 3D dimensions. Our Python simulations of up to 100,000 hypercubes computationally verify this formula, showing that state synchronization occurs with zero physical delay, purely dictated by the topological boundary conditions of the 9D structure.
