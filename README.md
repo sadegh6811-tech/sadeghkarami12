@@ -107,3 +107,8 @@ MIT License — see LICENSE file.
 | cone | 3 | 2 | X0^2 + X1^2 = X2^2 |
 | torus_4d | 4 | 2 | X0^2 + X1^2 = 1, X2^2 + X3^2 = 1 |
 | helix_3d | 3 | 1 | X0 = cos(4pi X2), X1 = sin(4pi X2) |
+
+## Live Demo
+
+🚀 **Try MathBot Online:** [Launch Web App](https://sadeghkarami12-kkwbuhhjprh6zqegdhe4ks.streamlit.app)
+
