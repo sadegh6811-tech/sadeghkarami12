@@ -1,13 +1,21 @@
-# Forex Alpha - Private Trading Strategies
+# Forex / Trading Alpha (PRIVATE)
 forex_alpha/
 *forex*
 *wick*
 *trading*
 *pnl*
 *orderflow*
+*long_*
+*short_*
+*golden*
+*crypto*
+**/*wick*
+**/*crypto*
+**/*golden*
 test_universes*
 final_engine*
 tricore*
 walk_forward*
 __pycache__/
 *.pyc
+*.npy
