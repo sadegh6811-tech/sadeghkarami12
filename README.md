@@ -87,3 +87,23 @@ GitHub: https://github.com/sadeghkarami
 ## License
 
 MIT License — see LICENSE file.
+
+## Benchmark Results (v3.1)
+
+**9 manifolds × 5 seeds × 4 noise levels (0%, 5%, 10%, 15%)**
+
+- **Success rate: 100%** (180/180 runs)
+- **94.4% excellent** (residual < 0.05)
+- **5.6% good** (residual < 0.15)
+
+| Input | n | d | Discovered equation |
+|-------|---|---|---------------------|
+| circle_2d | 2 | 1 | X0^2 + X1^2 = 1 |
+| sphere_3d | 3 | 2 | X0^2 + X1^2 + X2^2 = 1 |
+| sphere_4d | 4 | 3 | X0^2 + X1^2 + X2^2 + X3^2 = 1 |
+| cylinder | 3 | 2 | X0^2 + X1^2 = 1 |
+| paraboloid | 3 | 2 | X2 = X0^2 + X1^2 |
+| hyperbolic | 3 | 2 | X0^2 - X1^2 - X2^2 = 1 |
+| cone | 3 | 2 | X0^2 + X1^2 = X2^2 |
+| torus_4d | 4 | 2 | X0^2 + X1^2 = 1, X2^2 + X3^2 = 1 |
+| helix_3d | 3 | 1 | X0 = cos(4pi X2), X1 = sin(4pi X2) |
