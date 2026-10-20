@@ -1,13 +1,13 @@
+# Forex Alpha - Private Trading Strategies
+forex_alpha/
+*forex*
+*wick*
+*trading*
+*pnl*
+*orderflow*
+test_universes*
+final_engine*
+tricore*
+walk_forward*
 __pycache__/
-*.py[cod]
-*.so
-venv/
-env/
-.venv/
-results/
-*.log
-.vscode/
-.idea/
-*.swp
-.DS_Store
-Thumbs.db
+*.pyc

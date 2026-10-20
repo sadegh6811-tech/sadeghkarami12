@@ -1,0 +1,6 @@
+timestamp,input_file,n,d,n_eq,n_equations_found,max_degree,denoised,sigma_rel_before,txt_file
+2026-10-07 05:09:21,samples/sphere_3d.csv,3,2,1,1,2,False,0.0251,sphere_3d_20261007_050921.txt
+2026-10-07 05:09:26,samples/sphere_3d_noisy.csv,3,2,1,1,2,True,0.0446,sphere_3d_noisy_20261007_050926.txt
+2026-10-07 05:09:31,samples/helix_3d.csv,3,1,2,2,3,False,0.0045,helix_3d_20261007_050931.txt
+2026-10-07 05:09:35,samples/torus_4d.csv,4,2,2,2,2,False,0.0219,torus_4d_20261007_050935.txt
+2026-10-07 05:09:44,samples/sphere_4d.csv,4,3,1,1,2,True,0.0403,sphere_4d_20261007_050944.txt
