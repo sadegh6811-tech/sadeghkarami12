@@ -1,4 +1,5 @@
-"""ربات کشف فرمول. استفاده: python mathbot.py <points.csv> [max_degree] [--save]"""
+"""ربات کشف فرمول.
+استفاده: python mathbot.py <points.csv> [max_degree] [--save] [--force-n-eq N] [--no-collapse]"""
 import sys
 import os
 import numpy as np
@@ -12,6 +13,9 @@ def load_points(path):
     if path.endswith(".npy"):
         return np.load(path)
     data = np.genfromtxt(path, delimiter=",", comments="#")
+    # اگه خط اول header بود (NaN شد)، بدون اون دوباره بخون
+    if data.ndim >= 2 and np.isnan(data[0]).any():
+        data = np.genfromtxt(path, delimiter=",", comments="#", skip_header=1)
     if data.ndim == 1:
         data = data.reshape(-1, 1)
     return data
@@ -30,18 +34,109 @@ def choose_dimension(d_twonn, d_mle, n):
 
 def main():
     args = sys.argv[1:]
-    if not args:
-        print("Usage: python mathbot.py <points.csv> [max_degree] [--save]")
-        sys.exit(1)
+    
+    # --help
+    if not args or "--help" in args or "-h" in args:
+        print("=" * 60)
+        print("MathBot — کشف معادلات ضمنی")
+        print("=" * 60)
+        print()
+        print("استفاده:")
+        print("  python mathbot.py <points.csv> [max_degree] [options]")
+        print()
+        print("آرگومان‌ها:")
+        print("  points.csv       فایل CSV یا NPY با نقاط داده")
+        print("  max_degree       حداکثر درجه (پیش‌فرض: 3)")
+        print()
+        print("گزینه‌ها:")
+        print("  --save               ذخیره‌ی نتایج")
+        print("  --force-n-eq N       تعیین دستی تعداد معادلات")
+        print("  --no-collapse        کاوش در بعد محیطی")
+        print("  --help, -h           نمایش این راهنما")
+        print()
+        print("مثال:")
+        print("  python mathbot.py data.csv")
+        print("  python mathbot.py data.csv 5 --save")
+        sys.exit(0)
 
     save_flag = "--save" in args
     args = [a for a in args if a != "--save"]
 
-    path = args[0]
-    max_degree = int(args[1]) if len(args) > 1 else 3
+    # --force-n-eq N: تعداد معادلات رو دستی تعیین کن
+    force_n_eq = None
+    if "--force-n-eq" in args:
+        i = args.index("--force-n-eq")
+        if i + 1 < len(args):
+            force_n_eq = int(args[i + 1])
+            args = args[:i] + args[i+2:]
 
-    X = load_points(path)
+    # --no-collapse: بعد ذاتی رو نادیده بگیر، در بعد محیطی کاوش کن
+    no_collapse = "--no-collapse" in args
+    args = [a for a in args if a != "--no-collapse"]
+    
+    # --explicit Y: کشف معادله صریح y = f(x) که ستون Y-ام خروجی است
+    explicit_col = None
+    if "--explicit" in args:
+        i = args.index("--explicit")
+        if i + 1 < len(args):
+            explicit_col = int(args[i + 1])
+            args = args[:i] + args[i+2:]
+
+    path = args[0]
+    max_degree = int(args[1]) if len(args) > 1 else 4
+
+    if not os.path.exists(path):
+        print(f"[!] خطا: فایل '{path}' پیدا نشد.")
+        print(f"    مسیر فعلی: {os.getcwd()}")
+        sys.exit(1)
+    
+    try:
+        X = load_points(path)
+    except Exception as e:
+        print(f"[!] خطا در بارگذاری فایل: {type(e).__name__}: {e}")
+        sys.exit(1)
+    
+    if X.size == 0:
+        print(f"[!] خطا: فایل خالی است.")
+        sys.exit(1)
+    
     print(f"[*] بارگذاری: {X.shape[0]} نقطه در R^{X.shape[1]}")
+    
+    # حالت صریح
+    if explicit_col is not None:
+        if explicit_col < 0 or explicit_col >= X.shape[1]:
+            print(f"[!] خطا: ستون {explicit_col} خارج از محدوده (0 تا {X.shape[1]-1})")
+            sys.exit(1)
+        print(f"[*] حالت صریح: ستون {explicit_col} به عنوان y، بقیه به عنوان x")
+        y = X[:, explicit_col]
+        X_features = np.delete(X, explicit_col, axis=1)
+        
+        from discover import discover_explicit
+        result = discover_explicit(X_features, y, degree=max_degree)
+        if len(result) == 4:
+            eq, coefs, mu_x, sigma_x = result
+        else:
+            eq, coefs, mu_x, sigma_x, y_mu, y_sigma = result
+        
+        import sympy as sp
+        y_sym = sp.Symbol('y')
+        eq_final = sp.Eq(y_sym, eq.evalf(4))
+        print(f"\n[✓] معادله صریح:")
+        print(f"    {eq_final}")
+        return
+        if explicit_col < 0 or explicit_col >= X.shape[1]:
+            print(f"[!] خطا: ستون {explicit_col} خارج از محدوده (0 تا {X.shape[1]-1})")
+            sys.exit(1)
+        print(f"[*] حالت صریح: ستون {explicit_col} به عنوان y، بقیه به عنوان x")
+        y = X[:, explicit_col]
+        X_features = np.delete(X, explicit_col, axis=1)
+        
+        from discover import discover_explicit
+        eq, coefs, mu_x, sigma_x = discover_explicit(X_features, y, degree=max_degree)
+        eq_orig = convert_to_original(eq, mu_x, sigma_x, X_features.shape[1])
+        print(f"\n[✓] معادله صریح:")
+        print(f"    y = {eq_orig.evalf(4)}")
+        return
 
     stds = X.std(axis=0)
     keep = stds > 1e-10
@@ -57,7 +152,7 @@ def main():
     # حذف نویز
     print("[*] بررسی سطح نویز...")
     from denoise import auto_denoise
-    X, denoise_info = auto_denoise(X, sigma_threshold=0.03)
+    X, denoise_info = auto_denoise(X, sigma_threshold=0.5)
     print(f"    سیگما نسبی قبل: {denoise_info['sigma_rel']:.4f}")
     if denoise_info["denoised"]:
         print(f"    حذف نویز انجام شد (d = {denoise_info['d']})")
@@ -75,17 +170,30 @@ def main():
     d, reason = choose_dimension(d_twonn, d_mle, n)
     print(f"[*] بعد ذاتی انتخاب‌شده: d = {d}  ({reason})")
 
-    n_eq = n - d
-    if n_eq <= 0:
-        print("[✓] نقاط کل فضا را پر می‌کنند.")
-        return
-    print(f"[*] تعداد معادلات لازم: n - d = {n_eq}")
+    if force_n_eq is not None:
+        n_eq = force_n_eq
+        print(f"[*] حالت اجباری: تعداد معادلات = {n_eq} (نادیده گرفتن بعد ذاتی)")
+    elif no_collapse:
+        n_eq = max(1, n - d)  # حتی اگه d==n، حداقل یک معادله
+        print(f"[*] حالت no-collapse: در بعد محیطی می‌مانیم، n_eq = {n_eq}")
+    else:
+        n_eq = n - d
+        if n_eq <= 0:
+            print("[✓] نقاط کل فضا را پر می‌کنند. (برای کاوش، از --force-n-eq استفاده کن)")
+            return
+        print(f"[*] تعداد معادلات لازم: n - d = {n_eq}")
 
-    eqs_norm, S, mu, sigma = discover_equations(X, n_eq, degree=max_degree)
+    eqs_norm, S, mu, sigma = discover_equations(X, n_eq, degree=max_degree, use_trig=True)
 
     print("\n[*] مقادیر تکین (۱۰ تای اول):")
     if len(S) > 0:
         print("    ", np.round(S[:10], 5))
+        # نسبت residual/dominant برای معیار کیفیت
+        if len(S) > 0 and S[0] > 1e-12:
+            # معیار کیفیت: نسبت کوچک‌ترین به بزرگ‌ترین
+            # مقدار کم = قید قوی
+            rms_svd = float(S[-1] / S[0])
+            print(f"[i] RMS_svd = {rms_svd:.8f}")
 
     # تبدیل به مختصات اصلی
     eqs_orig = []

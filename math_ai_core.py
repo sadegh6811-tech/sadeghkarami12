@@ -1,0 +1,157 @@
+"""هوش مصنوعی ریاضی‌دان — نسخه‌ی چند-فرکانسی."""
+import numpy as np
+
+
+def periodicity_expert(x, omega):
+    """تناوب — آستانه‌ی ملایم‌تر برای پشتیبانی از یک دوره."""
+    period = 2 * np.pi / omega
+    n_periods = (x.max() - x.min()) / period
+    # آستانه‌ی جدید: حداقل 0.5 دوره کافیه
+    return {"valid": n_periods >= 0.3, "score": float(min(1.0, n_periods / 2.0))}
+
+
+def simplicity_expert(x, y, omega):
+    n = len(x)
+    yn = (y - y.mean()) / (y.std() + 1e-12)
+    A_t = np.column_stack([np.sin(omega*x), np.cos(omega*x), np.ones(n)])
+    coef_t, *_ = np.linalg.lstsq(A_t, yn, rcond=None)
+    rss_t = np.sum((yn - A_t @ coef_t)**2) + 1e-12
+    A_p = np.column_stack([x, x**2, np.ones(n)])
+    coef_p, *_ = np.linalg.lstsq(A_p, yn, rcond=None)
+    rss_p = np.sum((yn - A_p @ coef_p)**2) + 1e-12
+    bic_t = n * np.log(rss_t/n) + 3*np.log(n)
+    bic_p = n * np.log(rss_p/n) + 3*np.log(n)
+    diff = (bic_p - bic_t) / (abs(bic_p) + 1e-12)
+    return {"trig_better": bic_t < bic_p, "score": float(max(0, min(1, diff)))}
+
+
+def stability_expert(x, y, omega, n_splits=4):
+    n = len(x)
+    split_size = n // n_splits
+    if split_size < 20:
+        return {"cv": 1.0, "stable": False, "score": 0.0}
+    omegas = []
+    for i in range(n_splits):
+        xs = x[i*split_size:(i+1)*split_size]
+        ys = y[i*split_size:(i+1)*split_size]
+        best_r2, best_w = -np.inf, omega
+        for dw in np.linspace(-0.1*omega, 0.1*omega, 15):
+            w = omega + dw
+            A = np.column_stack([np.sin(w*xs), np.cos(w*xs), np.ones(len(xs))])
+            coef, *_ = np.linalg.lstsq(A, ys, rcond=None)
+            r2 = 1 - np.sum((ys - A @ coef)**2) / (np.sum((ys - ys.mean())**2) + 1e-12)
+            if r2 > best_r2: best_r2, best_w = r2, w
+        omegas.append(best_w)
+    omegas = np.array(omegas)
+    cv = float(np.std(omegas) / (np.mean(omegas) + 1e-12))
+    return {"cv": cv, "stable": cv < 0.05, "score": float(max(0, 1 - cv*20))}
+
+
+def improvement_expert(x, y, omega):
+    n = len(x)
+    yn = (y - y.mean()) / (y.std() + 1e-12)
+    rss_base = float(np.sum(yn**2))
+    A = np.column_stack([np.sin(omega*x), np.cos(omega*x), np.ones(n)])
+    coef, *_ = np.linalg.lstsq(A, yn, rcond=None)
+    rss_trig = float(np.sum((yn - A @ coef)**2))
+    imp = (rss_base - rss_trig) / (rss_base + 1e-12)
+    return {"improvement": float(imp), "significant": imp > 0.3,
+            "score": float(min(1, max(0, imp)))}
+
+
+def trig_presence_expert(x, y, omega):
+    """آیا داده واقعاً مثلثاتیه؟ با تست تفکیک‌پذیری."""
+    n = len(x)
+    yn = (y - y.mean()) / (y.std() + 1e-12)
+    
+    # تست ۱: مدل مثلثاتی
+    A_t = np.column_stack([np.sin(omega*x), np.cos(omega*x), np.ones(n)])
+    coef_t, *_ = np.linalg.lstsq(A_t, yn, rcond=None)
+    rss_t = np.sum((yn - A_t @ coef_t)**2)
+    r2_t = 1 - rss_t / (np.sum(yn**2) + 1e-12)
+    
+    # تست ۲: مدل خطی ساده (بدون مثلثات)
+    A_l = np.column_stack([x, np.ones(n)])
+    coef_l, *_ = np.linalg.lstsq(A_l, yn, rcond=None)
+    rss_l = np.sum((yn - A_l @ coef_l)**2)
+    r2_l = 1 - rss_l / (np.sum(yn**2) + 1e-12)
+    
+    # آستانه: مثلثات باید حداقل ۲۰٪ بهتر از خطی باشه
+    improvement = (r2_t - r2_l) / (abs(r2_l) + 0.1)
+    
+    return {
+        "r2_trig": float(r2_t),
+        "r2_linear": float(r2_l),
+        "improvement": float(improvement),
+        "valid": r2_t > 0.8 and improvement > 0.1,
+        "score": float(min(1.0, max(0.0, improvement * 2))),
+    }
+
+
+def frequency_validator(x, y, omega, X=None, i=None, j=None, verbose=False):
+    experts = {}
+    p = periodicity_expert(x, omega)
+    experts["periodicity"] = {"score": p["score"], "weight": 2.0, "valid": p["valid"]}
+    s = simplicity_expert(x, y, omega)
+    experts["simplicity"] = {"score": s["score"], "weight": 1.5, "valid": s["trig_better"]}
+    st = stability_expert(x, y, omega)
+    experts["stability"] = {"score": st["score"], "weight": 2.0, "valid": st["stable"]}
+    im = improvement_expert(x, y, omega)
+    experts["improvement"] = {"score": im["score"], "weight": 1.0, "valid": im["significant"]}
+    
+    # trig_presence_expert حذف شد — خیلی سخت‌گیرانه بود
+    
+    total_w = sum(e["weight"] for e in experts.values())
+    total_s = sum(e["score"] * e["weight"] for e in experts.values())
+    final = total_s / (total_w + 1e-12)
+    
+    if not p["valid"]:
+        return {"score": 0.0, "verdict": "rejected_periodicity", "details": experts}
+    # veto حذف شد
+    if not st["stable"]:
+        return {"score": final*0.3, "verdict": "rejected_stability", "details": experts}
+    if not im["significant"]:
+        return {"score": final*0.5, "verdict": "rejected_improvement", "details": experts}
+    
+    verdict = "accepted" if final > 0.5 else "weak"
+    if verbose:
+        print(f"    [AI] ω={omega:.4f} verdict={verdict} score={final:.3f}")
+    return {"score": float(final), "verdict": verdict, "details": experts}
+
+
+def filter_frequencies(x, y, candidates, X=None, i=None, j=None, threshold=0.5):
+    """فیلتر فرکانس‌ها به صورت ترتیبی: هر فرکانس بعد از حذف قبلی‌ها بررسی می‌شه."""
+    approved = []
+    y_residual = y.copy()
+    
+    for _ in range(len(candidates)):
+        if not candidates:
+            break
+        # بهترین فرکانس رو از باقی‌مانده پیدا کن
+        best_omega, best_r2, best_idx = None, -np.inf, -1
+        for idx, omega in enumerate(candidates):
+            A = np.column_stack([np.sin(omega*x), np.cos(omega*x), np.ones(len(x))])
+            coef, *_ = np.linalg.lstsq(A, y_residual, rcond=None)
+            pred = A @ coef
+            r2 = 1 - np.sum((y_residual - pred)**2) / (np.sum((y_residual - y_residual.mean())**2) + 1e-12)
+            if r2 > best_r2:
+                best_r2, best_omega, best_idx = r2, omega, idx
+        
+        if best_omega is None:
+            break
+        
+        # اعتبارسنجی
+        res = frequency_validator(x, y_residual, best_omega, X, i, j)
+        if res["score"] >= threshold and res["verdict"] == "accepted":
+            approved.append(best_omega)
+            # باقی‌مانده رو به‌روز کن
+            A = np.column_stack([np.sin(best_omega*x), np.cos(best_omega*x), np.ones(len(x))])
+            coef, *_ = np.linalg.lstsq(A, y_residual, rcond=None)
+            y_residual = y_residual - A @ coef
+        else:
+            # اگه بهترین فرکانس رد شد، از باقی‌مانده صرف‌نظر کن
+            break
+        
+        candidates = [c for i2, c in enumerate(candidates) if i2 != best_idx]
+    
+    return approved

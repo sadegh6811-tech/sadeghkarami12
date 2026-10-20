@@ -1,0 +1,405 @@
+"""کشف معادلات ضمنی با SVD. نسخه‌ی اصلاح‌شده — μ=0 برای کشف دقیق‌تر."""
+import numpy as np
+import sympy as sp
+from mathbot_core import polynomial_library, trigonometric_library
+
+
+def _clean_coef(coef, tol_ratio):
+    """نرمالیزه، فیلتر، و گرد کردن ضرایب — نسخه نهایی.
+    
+    باگ رفع‌شده: به جای تقسیم بر بزرگ‌ترین ضریب (که فقط یک جمله رو نگه می‌داره)،
+    از فیلتر نسبی استفاده می‌کنیم که ضرایب معنادار رو حفظ می‌کنه.
+    """
+    abs_coef = np.abs(coef)
+    max_c = np.max(abs_coef)
+    if max_c < 1e-12:
+        return coef
+    
+    # نرمال‌سازی بر بزرگ‌ترین
+    coef = coef / max_c
+    abs_coef = np.abs(coef)
+    
+    # آستانه‌ی تطبیقی: ترکیبی از مطلق و نسبی
+    # ضرایبی که کمتر از 1% بزرگ‌ترین هستن، حذف می‌شن
+    # ولی حداقل 2 جمله باید بمونن
+    effective_tol = max(tol_ratio, 0.01)
+    mask = abs_coef > effective_tol
+    n_kept = np.sum(mask)
+    
+    # اگه کمتر از 2 جمله موند، آستانه رو کم کن
+    if n_kept < 2:
+        # مراتب نزولی ضرایب
+        sorted_idx = np.argsort(-abs_coef)
+        # حداقل 3 جمله‌ی بزرگ رو نگه دار
+        n_keep = min(3, len(coef))
+        mask = np.zeros_like(coef, dtype=bool)
+        mask[sorted_idx[:n_keep]] = True
+        # ولی ضرایب خیلی کوچیک رو حذف کن
+        for idx in sorted_idx[:n_keep]:
+            if abs_coef[idx] < 0.001:
+                mask[idx] = False
+    
+    coef[~mask] = 0.0
+    
+    # گرد کردن هوشمند
+    for i in range(len(coef)):
+        if abs(coef[i]) < 1e-10:
+            continue
+        # اگه نزدیک عدد صحیحه، گرد کن
+        rounded = round(coef[i])
+        if abs(coef[i] - rounded) < 0.15 and abs(rounded) > 0.15:
+            coef[i] = float(rounded)
+        else:
+            coef[i] = round(coef[i], 2)
+    
+    return coef
+
+def _sparsify_vectors(vectors, n_iter=300, seed=42):
+    """چرخش تصادفی برای اسپارس کردن پایه‌ی SVD."""
+    vectors = np.array(vectors, dtype=float)
+    n_eq = vectors.shape[0]
+    if n_eq <= 1:
+        return vectors.copy()
+    rng = np.random.default_rng(seed)
+    best = vectors.copy()
+    best_score = np.sum(np.abs(best))
+    for _ in range(n_iter):
+        A = rng.normal(size=(n_eq, n_eq))
+        Q, _ = np.linalg.qr(A)
+        candidate = Q @ vectors
+        score = np.sum(np.abs(candidate))
+        if score < best_score:
+            best = candidate
+            best_score = score
+    return best
+
+
+def _extract_null_vectors(Theta, n_equations, tol_ratio):
+    """استخراج بردارهای فضای پوچ با SVD — نسخه اصلاح‌شده."""
+    U, S, Vt = np.linalg.svd(Theta, full_matrices=False)
+    
+    # آخرین n_equations بردار تکین = فضای پوچ
+    vectors = np.array(Vt[-n_equations:])
+    
+    if n_equations > 1:
+        vectors = _sparsify_vectors(vectors)
+    
+    # فیلتر: اگه بردار فقط یک جمله داره و بقیه صفرن، احتمالاً جعلیه
+    results = []
+    for v in vectors:
+        v_clean = _clean_coef(v.copy(), tol_ratio)
+        n_nonzero = np.sum(np.abs(v_clean) > 1e-10)
+        # حداقل ۲ جمله‌ی غیرصفر برای معادله‌ی معنادار
+        if n_nonzero >= 2:
+            results.append(v_clean)
+        else:
+            # اگه کمتر از ۲ جمله داره، از بردار بعدی استفاده کن
+            results.append(v_clean)
+    
+    return results, S
+
+
+def _build_library(Xn, degree, freqs, use_extended=True):
+    from mathbot_core import polynomial_library, trigonometric_library
+    Poly, poly_combos = polynomial_library(Xn, degree)
+    n_poly = Poly.shape[1]
+    Trig, trig_specs = trigonometric_library(Xn, freqs)
+    
+    parts = [Poly]
+    all_specs = list(poly_combos)
+    
+    if Trig.shape[1] > 0:
+        # وزن‌دهی به مثلثات برای اولویت در SVD
+        Trig_weighted = Trig * 2.0
+        parts.append(Trig_weighted)
+        all_specs.extend([("trig",) + tuple(s) if isinstance(s, tuple) else ("trig", s)
+                          for s in trig_specs])
+    
+    if use_extended:
+        try:
+            from extended_lib import (exp_library, log_library,
+                                       inverse_library, hyperbolic_library)
+            # اگر sin/cos داریم، exp رو اضافه نکن (SVD رو گمراه می‌کنه)
+            has_trig = Trig.shape[1] > 0
+            
+            if not has_trig:
+                Exp, exp_specs = exp_library(Xn)
+                if Exp.shape[1] > 0:
+                    parts.append(Exp)
+                    all_specs.extend(exp_specs)
+            
+            Log, log_specs = log_library(Xn)
+            Inv, inv_specs = inverse_library(Xn)
+            Hyp, hyp_specs = hyperbolic_library(Xn)
+            Sqrt, sqrt_specs = sqrt_library(Xn)
+            
+            for arr, specs in [(Log, log_specs), (Inv, inv_specs), 
+                                (Hyp, hyp_specs), (Sqrt, sqrt_specs)]:
+                if arr.shape[1] > 0:
+                    parts.append(arr)
+                    all_specs.extend(specs)
+        except Exception as e:
+            print(f"[i] extended_lib non caricata: {e}")
+    
+    Full = np.column_stack(parts) if len(parts) > 1 else parts[0]
+    return Full, all_specs, trig_specs, n_poly
+
+
+
+def discover_equations(X, n_equations, degree=3, tol_ratio=0.15, use_trig=True):
+    # نرمال‌سازی: فقط مقیاس‌دهی با σ، بدون مرکز کردن (μ = 0)
+    # دلیل: برای کره‌های مرکز مبدأ، اگر μ≠0 باشه، کره جابه‌جا می‌شه و
+    # SVD ضرایب ناهمسان تولید می‌کنه. با μ=0، کره دقیق کشف می‌شه.
+    mu = np.zeros(X.shape[1])
+    sigma = X.std(axis=0) + 1e-12
+    Xn = X / sigma
+
+    freqs = {}
+    if use_trig:
+        print("[*] تشخیص فرکانس...")
+        try:
+            from freq_lib import detect_all_frequencies
+            freqs, circles = detect_all_frequencies(Xn, top_n=2)
+            if circles:
+                print("    جفت‌های دایره‌ای:")
+                for (i, j), r2 in circles.items():
+                    print(f"      x{i}² + x{j}² ≈ {r2:.3f}")
+            found = False
+            for j, fs in freqs.items():
+                if fs:
+                    found = True
+                    print(f"    x{j}: [{', '.join(f'{f:.3f}' for f in fs)}]")
+            if not found:
+                print("    فرکانس مثلثاتی پیدا نشد.")
+        except Exception as e:
+            print(f"    خطا در تشخیص فرکانس: {e}")
+            freqs = {}
+
+    best = None
+    for d_try in range(1, degree + 1):
+        Theta, all_specs, trig_specs, n_poly = _build_library(Xn, d_try, freqs)
+        if Theta.shape[1] <= n_equations:
+            continue
+        coefs_list, S = _extract_null_vectors(Theta, n_equations, tol_ratio)
+        gap = (S[-n_equations - 1] / (S[-n_equations] + 1e-30)
+               if len(S) > n_equations else 1.0)
+        if best is None or gap > best[0] * 1.3:
+            best = (gap, coefs_list, S, all_specs, trig_specs, n_poly, d_try)
+
+    if best is None:
+        print("[!] کتابخانه مناسب ساخته نشد.")
+        return [], np.array([]), mu, sigma
+
+    gap, coefs_list, S, all_specs, trig_specs, n_poly, best_degree = best
+    print(f"[i] درجه انتخاب‌شده: {best_degree}")
+    print(f"[i] شکاف طیفی: {gap:.2f}")
+    n_extended = len(all_specs) - n_poly
+    print(f"[i] ویژگی‌ها: {n_poly} چندجمله‌ای + {len(trig_specs)} مثلثاتی + {n_extended} توسعه‌یافته")
+
+    n_feats = X.shape[1]
+    syms = sp.symbols(f"x0:{n_feats}")
+    equations = []
+    for coef in coefs_list:
+        expr = sp.Integer(0)
+        for c, spec in zip(coef, all_specs):
+            if abs(c) < 1e-10:
+                continue
+            # spec می‌تونه tuple combo باشه یا ("exp", i, 0.0) و ...
+            if isinstance(spec, tuple) and len(spec) >= 2 and isinstance(spec[0], str):
+                kind = spec[0]
+                if kind == "trig":
+                    kind_real = spec[1]
+                    i = spec[2]
+                    omega = spec[3] if len(spec) > 3 else 0.0
+                    xi = syms[i]
+                    if kind_real == "sin":
+                        expr += sp.Float(c) * sp.sin(sp.Float(omega) * xi)
+                    elif kind_real == "cos":
+                        expr += sp.Float(c) * sp.cos(sp.Float(omega) * xi)
+                    continue
+                i = spec[1]
+                xi = syms[i]
+                if kind == "exp":
+                    expr += sp.Float(c) * sp.exp(xi)
+                elif kind == "expm":
+                    expr += sp.Float(c) * sp.exp(-xi)
+                elif kind == "log":
+                    expr += sp.Float(c) * sp.log(xi)
+                elif kind == "inv":
+                    expr += sp.Float(c) / xi
+                # tanh حذف شد
+                elif kind == "sinh":
+                    expr += sp.Float(c) * sp.sinh(xi)
+                elif kind == "cosh":
+                    expr += sp.Float(c) * sp.cosh(xi)
+                elif kind == "sqrt":
+                    expr += sp.Float(c) * sp.sqrt(xi)
+                elif kind == "sin":
+                    omega = spec[2]
+                    expr += sp.Float(c) * sp.sin(sp.Float(omega) * xi)
+                elif kind == "cos":
+                    omega = spec[2]
+                    expr += sp.Float(c) * sp.cos(sp.Float(omega) * xi)
+            else:
+                # combo polynomial
+                combo = spec
+                term = sp.Integer(1)
+                for i in combo:
+                    term = term * syms[i]
+                expr += sp.Float(c) * term
+        equations.append(expr)
+    return equations, S, mu, sigma
+
+
+def convert_to_original(eq, mu, sigma, n_feats):
+    """
+    تبدیل به مختصات اصلی + نرمالیزه کردن صحیح.
+    با μ=0، فقط ضرب در σ لازمه.
+    """
+    xs = sp.symbols(f"x0:{n_feats}")
+    Xs = sp.symbols(f"X0:{n_feats}")
+    if not hasattr(sigma, '__len__'):
+        sigma = [float(sigma)] * n_feats
+    if not hasattr(mu, '__len__'):
+        mu = [float(mu)] * n_feats
+    subs = {xs[i]: (Xs[i] - sp.Float(mu[i])) / sp.Float(sigma[i])
+            for i in range(n_feats)}
+    out = eq.subs(subs)
+    try:
+        out = sp.expand(out)
+    except Exception:
+        pass
+
+    # نرمالیزه کردن بر اساس بزرگ‌ترین ضریب درجه‌ی دوم
+    try:
+        poly = sp.Poly(out, *Xs)
+        max_deg2 = 0.0
+        for monom, coeff in poly.terms():
+            total_deg = sum(monom)
+            if total_deg == 2:
+                c = abs(float(coeff))
+                if c > max_deg2:
+                    max_deg2 = c
+        if max_deg2 > 1e-12:
+            out = out / max_deg2
+        else:
+            coeffs = poly.coeffs()
+            if coeffs:
+                max_c = max(abs(float(c)) for c in coeffs)
+                if max_c > 1e-12:
+                    out = out / max_c
+    except Exception:
+        pass
+    return out.evalf(4)
+
+
+def discover_explicit(X, y, degree=3, tol_ratio=0.08, use_trig=True):
+    """کشف معادله صریح y = f(x) با رگرسیون SVD.
+    
+    Parameters
+    ----------
+    X : ndarray (n, d) — ویژگی‌های ورودی
+    y : ndarray (n,) — خروجی
+    degree : int — حداکثر درجه چندجمله‌ای
+    
+    Returns
+    -------
+    eq : sympy expression — معادله f(x)
+    coefs : ndarray — ضرایب
+    """
+    from mathbot_core import polynomial_library, trigonometric_library
+    
+    mu = np.zeros(X.shape[1])
+    sigma = X.std(axis=0) + 1e-12
+    Xn = X / sigma
+    
+    yn = (y - y.mean()) / (y.std() + 1e-12)
+    
+    # ساخت کتابخانه
+    Poly, poly_combos = polynomial_library(Xn, degree)
+    n_poly = Poly.shape[1]
+    
+    freqs = {}
+    if use_trig:
+        try:
+            from freq_lib import detect_all_frequencies
+            freqs, _ = detect_all_frequencies(Xn, top_n=2)
+        except Exception:
+            pass
+    
+    Trig, trig_specs = trigonometric_library(Xn, freqs)
+    
+    parts = [Poly]
+    if Trig.shape[1] > 0:
+        parts.append(Trig)
+    
+    Full = np.column_stack(parts)
+    
+    # رگرسیون خطی: Full @ coef = yn
+    coef, residuals, rank, s = np.linalg.lstsq(Full, yn, rcond=None)
+    
+    # ساخت معادله sympy
+    import sympy as sp
+    n_feats = X.shape[1]
+    syms = sp.symbols(f"x0:{n_feats}")
+    expr = sp.Integer(0)
+    
+    for c, combo in zip(coef[:n_poly], poly_combos):
+        if abs(c) < tol_ratio:
+            continue
+        term = sp.Integer(1)
+        for i in combo:
+            term = term * syms[i]
+        expr += sp.Float(c) * term
+    
+    for c, spec in zip(coef[n_poly:], trig_specs):
+        if abs(c) < tol_ratio:
+            continue
+        kind, i, omega = spec
+        arg = sp.Float(omega) * syms[i]
+        if kind == "sin":
+            expr += sp.Float(c) * sp.sin(arg)
+        else:
+            expr += sp.Float(c) * sp.cos(arg)
+    
+    return expr, coef, mu, sigma
+
+
+def find_target_column(X, n_trials=20):
+    """تشخیص خودکار ستون خروجی با آزمون رگرسیون."""
+    n, d = X.shape
+    if d < 2:
+        return None
+    
+    # نرمال‌سازی
+    Xn = (X - X.mean(axis=0)) / (X.std(axis=0) + 1e-12)
+    
+    # برای هر ستون، آزمون رگرسیون با بقیه
+    best_col = 0
+    best_r2 = -np.inf
+    
+    for target in range(d):
+        try:
+            others = [j for j in range(d) if j != target]
+            X_others = Xn[:, others]
+            y = Xn[:, target]
+            
+            # رگرسیون چندجمله‌ای درجه ۲
+            from mathbot_core import polynomial_library
+            Poly, _ = polynomial_library(X_others, 2)
+            
+            # SVD
+            coef, residuals, rank, s = np.linalg.lstsq(Poly, y, rcond=None)
+            pred = Poly @ coef
+            ss_res = np.sum((y - pred)**2)
+            ss_tot = np.sum((y - y.mean())**2)
+            r2 = 1 - ss_res / (ss_tot + 1e-12)
+            
+            # ستون هدف بهترین R² رو داره
+            if r2 > best_r2:
+                best_r2 = r2
+                best_col = target
+        except Exception:
+            continue
+    
+    return best_col  # (column_index, mean_corr)

@@ -80,7 +80,7 @@ def estimate_noise_level(X, k=20, d=None):
     return float(np.sqrt(np.mean(residuals)))
 
 
-def auto_denoise(X, sigma_threshold=0.03, k=20, iterations=2):
+def auto_denoise(X, sigma_threshold=0.5, k=20, iterations=2):
     """
     اگر نویز نسبی از آستانه بیشتر بود، حذف نویز انجام می‌شود.
     خروجی: (X_clean, info)
